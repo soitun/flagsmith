@@ -23,7 +23,8 @@
     "lint:fix": "npx eslint --fix .",
     "start": "cross-env NODE_ENV=production node ./api/index",
     "typecheck": "tsc",
-    "dev": "cross-env npm run env && npx nodemon --watch ./api --ignore server/config/config.json --watch webpack --exec node ./api"
+    "dev": "cross-env npm run env && npx nodemon --watch ./api --ignore server/config/config.json --watch webpack --exec node ./api",
+    "playwright:install": "npx playwright install --with-deps firefox"
   },
   "engines": {
     "node": "18.x",
