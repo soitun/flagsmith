@@ -273,13 +273,13 @@ function CreateReleasePipeline() {
               disabled={isSaveDisabled}
               dropdownItems={[
                 {
-                  label: `${saveButtonText} and Publish`,
+                  label: `${saveButtonText} & Publish`,
                   onClick: () => handleSubmitAndPublish(existingPipeline?.id),
                 },
               ]}
               onClick={() => handleSubmit(existingPipeline?.id)}
             >
-              {saveButtonText}
+              {saveButtonText} as Draft
             </ButtonDropdown>
           }
         />
