@@ -28,8 +28,10 @@ from experimentation.models import (
     ExperimentStatus,
     Metric,
 )
+from experimentation.serializers import ExperimentFeatureSerializer
 from features.feature_types import MULTIVARIATE
-from features.models import Feature
+from features.models import Feature, FeatureState
+from features.multivariate.models import MultivariateFeatureStateValue
 from tests.types import EnableFeaturesFixture
 
 if TYPE_CHECKING:
@@ -1373,3 +1375,69 @@ def test_post__concurrent_create_race__returns_409(
 
     # Then
     assert response.status_code == status.HTTP_409_CONFLICT
+
+
+def test_get_detail__env_level_allocations__returns_environment_percentages(
+    admin_client_new: APIClient,
+    environment: Environment,
+    experiment: Experiment,
+    multivariate_feature: Feature,
+    enable_features: EnableFeaturesFixture,
+) -> None:
+    # Given
+    enable_features(EXPERIMENT_FLAG)
+    env_fs = FeatureState.objects.get(
+        feature=multivariate_feature,
+        environment=environment,
+        identity__isnull=True,
+        feature_segment__isnull=True,
+    )
+    env_allocations = [10.0, 20.0, 70.0]
+    for mv_fsv, alloc in zip(
+        MultivariateFeatureStateValue.objects.filter(feature_state=env_fs).order_by(
+            "multivariate_feature_option_id"
+        ),
+        env_allocations,
+    ):
+        mv_fsv.percentage_allocation = alloc
+        mv_fsv.save()
+
+    # When
+    response = admin_client_new.get(_detail_url(environment, experiment))
+
+    # Then
+    assert response.status_code == status.HTTP_200_OK
+    options = response.json()["feature"]["multivariate_options"]
+    returned_allocs = sorted(o["default_percentage_allocation"] for o in options)
+    assert returned_allocs == sorted(env_allocations)
+
+
+def test_experiment_feature_serializer__no_environment_context__raises(
+    multivariate_feature: Feature,
+) -> None:
+    # Given
+    serializer = ExperimentFeatureSerializer(multivariate_feature, context={})
+
+    # When / Then
+    with pytest.raises(ValueError, match="requires 'environment' in context"):
+        serializer.data
+
+
+def test_experiment_feature_serializer__no_env_feature_state__raises(
+    environment: Environment,
+    multivariate_feature: Feature,
+) -> None:
+    # Given
+    FeatureState.objects.filter(
+        feature=multivariate_feature,
+        environment=environment,
+        identity__isnull=True,
+        feature_segment__isnull=True,
+    ).delete()
+    serializer = ExperimentFeatureSerializer(
+        multivariate_feature, context={"environment": environment}
+    )
+
+    # When / Then
+    with pytest.raises(ValueError, match="No environment feature state found"):
+        serializer.data
