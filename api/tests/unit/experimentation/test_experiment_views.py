@@ -652,6 +652,71 @@ def test_action__start__sets_started_at(
     assert response.json()["started_at"] is not None
 
 
+def test_action__start__enables_disabled_rollout(
+    admin_client_new: APIClient,
+    environment: Environment,
+    experiment_with_rollout: Experiment,
+    multivariate_options: list[MultivariateFeatureOption],
+    enable_features: EnableFeaturesFixture,
+) -> None:
+    # Given an experiment whose rollout override is disabled
+    enable_features(EXPERIMENT_FLAG)
+    option_a, option_b, _ = multivariate_options
+    admin_client_new.patch(
+        _action_url(environment, experiment_with_rollout, "rollout"),
+        data={
+            "enabled": False,
+            "rollout_percentage": 20,
+            "feature_state_value": {"type": "string", "value": "control"},
+            "multivariate_feature_state_values": [
+                {
+                    "multivariate_feature_option": option_a.id,
+                    "percentage_allocation": 50,
+                },
+                {
+                    "multivariate_feature_option": option_b.id,
+                    "percentage_allocation": 50,
+                },
+            ],
+        },
+        format="json",
+    )
+
+    # When the experiment is started
+    response = admin_client_new.post(
+        _action_url(environment, experiment_with_rollout, "start")
+    )
+
+    # Then the rollout override is enabled
+    assert response.status_code == status.HTTP_200_OK
+    detail = admin_client_new.get(_detail_url(environment, experiment_with_rollout))
+    assert detail.json()["experiment_rollout"]["enabled"] is True
+
+
+def test_action__start_rollout_enable_fails__rolls_back_transition(
+    admin_client_new: APIClient,
+    environment: Environment,
+    experiment: Experiment,
+    enable_features: EnableFeaturesFixture,
+    mocker: MockerFixture,
+) -> None:
+    # Given enabling the rollout will fail while starting
+    enable_features(EXPERIMENT_FLAG)
+    mocker.patch(
+        "experimentation.views.enable_experiment_rollout",
+        side_effect=RuntimeError("boom"),
+    )
+
+    # When
+    with pytest.raises(RuntimeError):
+        admin_client_new.post(_action_url(environment, experiment, "start"))
+
+    # Then the status transition is rolled back
+    experiment.refresh_from_db()
+    assert experiment.status == ExperimentStatus.CREATED
+    assert experiment.started_at is None
+
+
 def test_action__complete__sets_ended_at(
     admin_client_new: APIClient,
     environment: Environment,
