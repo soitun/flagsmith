@@ -1483,6 +1483,10 @@ CLICKHOUSE_ENABLED = bool(CLICKHOUSE_URL or CLICKHOUSE_HOST)
 SEGMENT_MEMBERSHIP_REFRESH_INTERVAL_HOURS = env.int(
     "SEGMENT_MEMBERSHIP_REFRESH_INTERVAL_HOURS", default=6
 )
+SEGMENT_MEMBERSHIP_DELETE_REFRESH_DELAY_SECONDS = env.int(
+    "SEGMENT_MEMBERSHIP_DELETE_REFRESH_DELAY_SECONDS",
+    default=120,  # We can expect the identity deletion to propagate by T+120 seconds based on Edge CDC SLO.
+)
 
 # Always installed: the router fences the `clickhouse` app's migrations off
 # the default Postgres database whether or not a CH alias is configured.
