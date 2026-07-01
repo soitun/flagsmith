@@ -34,7 +34,8 @@ Attributes:
 
 Logged at `warning` from:
  - `api/app_analytics/analytics_db_service.py:74`
- - `api/app_analytics/analytics_db_service.py:210`
+ - `api/app_analytics/analytics_db_service.py:187`
+ - `api/app_analytics/analytics_db_service.py:278`
 
 Attributes:
  - `details`
@@ -494,6 +495,38 @@ Logged at `info` from:
 Attributes:
  - `feature_name`
  - `sentry_action`
+
+### `usage_reporting.run.skipped`
+
+Logged at `debug` from:
+ - `api/organisations/usage_reporting/services.py:60`
+ - `api/organisations/usage_reporting/services.py:63`
+
+Attributes:
+ - `reason`
+
+### `usage_reporting.snapshot.errored`
+
+Logged at `exception` from:
+ - `api/organisations/usage_reporting/services.py:75`
+
+Attributes:
+
+### `usage_reporting.snapshot.push_failed`
+
+Logged at `warning` from:
+ - `api/organisations/usage_reporting/services.py:55`
+
+Attributes:
+ - `status_code`
+
+### `usage_reporting.snapshot.pushed`
+
+Logged at `info` from:
+ - `api/organisations/usage_reporting/services.py:53`
+
+Attributes:
+ - `status_code`
 
 ### `warehouse.connection.connected`
 
