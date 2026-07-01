@@ -7,11 +7,14 @@ import {
   getEnvironments,
 } from 'common/services/useEnvironment'
 import { projectFlagService } from 'common/services/useProjectFlag'
+import { tagService } from 'common/services/useTag'
 import { Req } from 'common/types/requests'
 import {
   Environment,
   PagedResponse,
+  ProjectFlag,
   ProjectSummary,
+  Tag,
 } from 'common/types/responses'
 import { SmartDefaults } from './useSmartDefaults'
 import { createOrganisationViaAccountStore } from './createOrganisationViaAccountStore'
@@ -24,6 +27,13 @@ const DEFAULT_PROJECT_NAME = 'My first project'
 // Written on create and matched by name on reuse, so the two must stay in step.
 const DEV_ENVIRONMENT_NAME = 'Development'
 const PROD_ENVIRONMENT_NAME = 'Production'
+// Attached to the demo flag so the flags table shows an "Onboarding" badge.
+// Green from the product tag palette (Constants.tagColors), not an arbitrary hex.
+const ONBOARDING_TAG = {
+  color: '#3cb371',
+  description: 'Created during onboarding',
+  label: 'Onboarding',
+}
 
 type ExistingOrg = { id: number; name: string }
 
@@ -128,13 +138,23 @@ async function ensureEnvironments(
     .unwrap()
 }
 
-// Reuse the project's existing flag (keeps a renamed flag and stops piling up
-// duplicates on revisit); only create the demo flag when there are none.
-// Returns the real flag name so the header shows what's actually there.
+// Find the project's Onboarding tag, if it's been created yet.
+async function findOnboardingTag(
+  store: Store,
+  projectId: number,
+): Promise<Tag | undefined> {
+  const tags = await store
+    .dispatch(tagService.endpoints.getTags.initiate({ projectId }))
+    .unwrap()
+  return tags?.find((t) => t.label === ONBOARDING_TAG.label)
+}
+
+// Reuse the onboarding flag, matched by its Onboarding tag (or its name) so we
+// never grab one of the user's other flags; else create the demo flag.
 async function ensureFlag(
   store: Store,
   project: ProjectSummary,
-): Promise<string> {
+): Promise<ProjectFlag | undefined> {
   const flags = await store
     .dispatch(
       projectFlagService.endpoints.getProjectFlags.initiate({
@@ -142,11 +162,15 @@ async function ensureFlag(
       }),
     )
     .unwrap()
-  const existing = flags?.results?.[0]
+  const onboardingTag = await findOnboardingTag(store, project.id)
+  const existing =
+    (onboardingTag &&
+      flags?.results?.find((f) => f.tags?.includes(onboardingTag.id))) ||
+    flags?.results?.find((f) => f.name === FLAG_NAME)
   if (existing) {
-    return existing.name
+    return existing
   }
-  const created = await store
+  return store
     .dispatch(
       projectFlagService.endpoints.createProjectFlag.initiate({
         body: {
@@ -158,7 +182,41 @@ async function ensureFlag(
       }),
     )
     .unwrap()
-  return created?.name ?? FLAG_NAME
+}
+
+// Attach the "Onboarding" tag to the demo flag (find-or-create), so the flags
+// table shows the badge from the design. Best-effort: tagging is cosmetic and
+// must never block the bootstrap.
+async function ensureOnboardingTag(
+  store: Store,
+  project: ProjectSummary,
+  flag: ProjectFlag,
+): Promise<void> {
+  try {
+    const tag =
+      (await findOnboardingTag(store, project.id)) ??
+      (await store
+        .dispatch(
+          tagService.endpoints.createTag.initiate({
+            projectId: project.id,
+            tag: ONBOARDING_TAG,
+          }),
+        )
+        .unwrap())
+    if (tag && !flag.tags?.includes(tag.id)) {
+      await store
+        .dispatch(
+          projectFlagService.endpoints.updateProjectFlag.initiate({
+            body: { ...flag, tags: [...(flag.tags ?? []), tag.id] },
+            feature_id: flag.id,
+            project_id: project.id,
+          }),
+        )
+        .unwrap()
+    }
+  } catch {
+    // Cosmetic only - never block onboarding on tagging.
+  }
 }
 
 // Idempotently bring up everything the single-page flow needs: org, project,
@@ -172,12 +230,15 @@ export async function bootstrapOnboarding(
   const organisation = await ensureOrganisation(store, input)
   const project = await ensureProject(store, organisation.id, input.defaults)
   const environment = await ensureEnvironments(store, project)
-  const featureName = await ensureFlag(store, project)
+  const flag = await ensureFlag(store, project)
+  if (flag) {
+    await ensureOnboardingTag(store, project, flag)
+  }
   // Refresh the legacy org store so the shell sees the project.
   AppActions.refreshOrganisation()
   return {
     environment,
-    featureName,
+    featureName: flag?.name ?? FLAG_NAME,
     organisationId: organisation.id,
     organisationName: organisation.name,
     project,
