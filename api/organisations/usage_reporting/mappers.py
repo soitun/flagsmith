@@ -17,10 +17,9 @@ from organisations.usage_reporting.dataclasses import (
 MAX_PROJECT_USAGE_ROWS = 5_000
 
 
-def map_signature_to_control_plane_auth_token(signature: str) -> str:
-    return (
-        base64.urlsafe_b64encode(signature.encode("utf-8")).decode("ascii").rstrip("=")
-    )
+def map_signature_to_control_plane_auth_token(signature_b64: str) -> str:
+    raw_signature = base64.b64decode(signature_b64)
+    return base64.urlsafe_b64encode(raw_signature).decode("ascii").rstrip("=")
 
 
 def map_usage_data_to_total_api_calls(usage_data: list[UsageData]) -> int:
