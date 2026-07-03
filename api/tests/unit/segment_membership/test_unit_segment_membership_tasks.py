@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
 from unittest.mock import MagicMock
 
@@ -13,6 +13,7 @@ from task_processor.models import Task
 from task_processor.task_run_method import TaskRunMethod
 
 from environments.models import Environment
+from organisations.models import Organisation
 from projects.models import Project
 from segment_membership import tasks
 from segment_membership.models import SegmentMembershipCount, SegmentMembershipSeed
@@ -375,18 +376,12 @@ def test_refresh_all_segment_counts__no_clickhouse_creds__skips(
     enqueue.assert_not_called()
 
 
-def test_refresh_all_segment_counts__live_segment_projects__delegates_to_enqueue(
+def test_refresh_all_segment_counts__no_live_segments__does_nothing(
     mocker: MockerFixture,
     settings: SettingsWrapper,
     project: Project,
-    segment: Segment,
 ) -> None:
-    # Given two projects with live segments (flag + debounce gating is the
-    # helper's job, so refresh_all just delegates one call per project)
-    project_b = Project.objects.create(
-        name="project-b", organisation=project.organisation
-    )
-    Segment.objects.create(name="seg-b", project=project_b)
+    # Given a project but no live segments, so there are no organisations to seed
     settings.CLICKHOUSE_ENABLED = True
     enqueue = mocker.patch.object(tasks, "enqueue_membership_refresh")
 
@@ -394,8 +389,42 @@ def test_refresh_all_segment_counts__live_segment_projects__delegates_to_enqueue
     refresh_all_segment_counts()
 
     # Then
-    dispatched_ids = {call.args[0].id for call in enqueue.call_args_list}
-    assert dispatched_ids == {project.id, project_b.id}
+    enqueue.assert_not_called()
+
+
+def test_refresh_all_segment_counts__live_segment_projects__staggers_evenly_by_org(
+    mocker: MockerFixture,
+    settings: SettingsWrapper,
+    project: Project,
+    segment: Segment,
+) -> None:
+    # Given three live-segment projects across two organisations
+    project_a2 = Project.objects.create(name="a2", organisation=project.organisation)
+    Segment.objects.create(name="seg-a2", project=project_a2)
+    org_b = Organisation.objects.create(name="org-b")
+    project_b = Project.objects.create(name="b1", organisation=org_b)
+    Segment.objects.create(name="seg-b", project=project_b)
+    settings.CLICKHOUSE_ENABLED = True
+    settings.SEGMENT_MEMBERSHIP_REFRESH_PROJECT_STAGGER_WINDOW_HOURS = 4
+    enqueue = mocker.patch.object(tasks, "enqueue_membership_refresh")
+
+    # When
+    refresh_all_segment_counts()
+
+    # Then one call per project, ordered by (organisation_id, id) so an
+    # organisation's projects refresh contiguously
+    called = [
+        (call.args[0].id, call.kwargs["delay_until"]) for call in enqueue.call_args_list
+    ]
+    expected_order = sorted(
+        (project, project_a2, project_b), key=lambda p: (p.organisation_id, p.id)
+    )
+    assert [pid for pid, _ in called] == [p.id for p in expected_order]
+    # spread evenly across the window: spacing = window / (total + 1)
+    spacing = timedelta(hours=4) / 4
+    delays = [delay for _, delay in called]
+    assert delays[1] - delays[0] == spacing
+    assert delays[2] - delays[1] == spacing
 
 
 def test_refresh_project_segment_counts__no_clickhouse_creds__skips(

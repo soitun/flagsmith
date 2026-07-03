@@ -174,13 +174,23 @@ def refresh_all_segment_counts() -> None:
     if not settings.CLICKHOUSE_ENABLED:
         return
 
-    project_ids = Segment.live_objects.values_list("project_id", flat=True)
-    for project in (
-        Project.objects.filter(id__in=project_ids)
+    projects = (
+        Project.objects.filter(
+            Exists(Segment.live_objects.filter(project=OuterRef("pk")))
+        )
         .select_related("organisation")
-        .iterator()
-    ):
-        enqueue_membership_refresh(project)
+        .order_by("organisation_id", "id")
+    )
+    total = projects.count()
+    if not total:
+        return
+
+    spacing = timedelta(
+        hours=settings.SEGMENT_MEMBERSHIP_REFRESH_PROJECT_STAGGER_WINDOW_HOURS
+    ) / (total + 1)
+    now = timezone.now()
+    for index, project in enumerate(projects.iterator()):
+        enqueue_membership_refresh(project, delay_until=now + spacing * index)
 
 
 @register_task_handler(
