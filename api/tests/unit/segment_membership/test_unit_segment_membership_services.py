@@ -6,7 +6,7 @@ from common.test_tools import RunTasksFixture
 from django.db import connections
 from django.utils import timezone
 from flag_engine.segments.constants import EQUAL, REGEX
-from pytest_django.fixtures import SettingsWrapper
+from pytest_django.fixtures import DjangoAssertNumQueries, SettingsWrapper
 from pytest_mock import MockerFixture
 from task_processor.models import Task
 from task_processor.task_run_method import TaskRunMethod
@@ -131,7 +131,7 @@ def test_compute_segment_counts_for_project__unknown_env_key_in_row__skips(
         return_value="TRUE",
     )
     cursor = MagicMock()
-    cursor.fetchall.return_value = [(segment.id, "ghost-env", 99)]
+    cursor.fetchall.return_value = [("ghost-env", 99)]
 
     # When
     result = compute_segment_counts_for_project(project, cursor)
@@ -196,6 +196,27 @@ def percent_regex_segment(segment: Segment) -> Segment:
     rule = SegmentRule.objects.create(segment=segment, type=SegmentRule.ALL_RULE)
     Condition.objects.create(rule=rule, property="foo", operator=REGEX, value="[b%]ar")
     return segment
+
+
+@pytest.fixture
+def three_segments(matching_segment: Segment, project: Project) -> dict[str, Segment]:
+    """`matching_segment` matches foo == bar (alice, bob); add one matching a
+    different value (carol) and one matching nobody."""
+    seg_baz = Segment.objects.create(name="baz", project=project)
+    Condition.objects.create(
+        rule=SegmentRule.objects.create(segment=seg_baz, type=SegmentRule.ALL_RULE),
+        property="foo",
+        operator=EQUAL,
+        value="baz",
+    )
+    seg_none = Segment.objects.create(name="none", project=project)
+    Condition.objects.create(
+        rule=SegmentRule.objects.create(segment=seg_none, type=SegmentRule.ALL_RULE),
+        property="foo",
+        operator=EQUAL,
+        value="zzz",
+    )
+    return {"bar": matching_segment, "baz": seg_baz, "none": seg_none}
 
 
 @pytest.mark.clickhouse
@@ -286,6 +307,43 @@ def test_compute_segment_counts_for_project__deleted_identity__excluded_from_cou
     assert len(counts) == 1
     assert counts[0].segment_id == matching_segment.id
     assert counts[0].count == 2
+
+
+@pytest.mark.clickhouse
+def test_compute_segment_counts_for_project__multiple_segments__maps_each_count_drops_zeros(
+    segment_membership_identities: None,
+    three_segments: dict[str, Segment],
+    project: Project,
+) -> None:
+    # Given / When
+    with connections["clickhouse"].cursor() as cursor:
+        counts = compute_segment_counts_for_project(project, cursor)
+
+    # Then
+    by_segment = {c.segment_id: c.count for c in counts}
+    assert by_segment == {
+        three_segments["bar"].id: 2,
+        three_segments["baz"].id: 1,
+    }
+    assert three_segments["none"].id not in by_segment
+
+
+@pytest.mark.clickhouse
+def test_compute_segment_counts_for_project__multiple_segments__uses_single_query(
+    segment_membership_identities: None,
+    three_segments: dict[str, Segment],
+    project: Project,
+    django_assert_num_queries: DjangoAssertNumQueries,
+) -> None:
+    # Given
+    # three_segments + identities are set up by fixtures
+
+    # When / Then
+    with (
+        django_assert_num_queries(1, connection=connections["clickhouse"]),
+        connections["clickhouse"].cursor() as cursor,
+    ):
+        compute_segment_counts_for_project(project, cursor)
 
 
 @pytest.mark.clickhouse
