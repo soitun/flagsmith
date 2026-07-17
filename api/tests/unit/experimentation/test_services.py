@@ -71,6 +71,7 @@ def test_get_clickhouse_client__configured_url__builds_client_with_timeouts(
         secure=True,
         connect_timeout=services.CLICKHOUSE_CONNECT_TIMEOUT_SECONDS,
         send_receive_timeout=services.CLICKHOUSE_QUERY_TIMEOUT_SECONDS,
+        client_name=settings.CLICKHOUSE_CONNECTION_CLIENT_NAME,
     )
     assert client is mock_client_cls.return_value
     services._get_clickhouse_client.cache_clear()
@@ -97,6 +98,7 @@ def test_get_clickhouse_client__dsn_timeouts__are_preserved(
         database="db",
         connect_timeout=1,
         send_receive_timeout=2,
+        client_name=settings.CLICKHOUSE_CONNECTION_CLIENT_NAME,
     )
     services._get_clickhouse_client.cache_clear()
 
