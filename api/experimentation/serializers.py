@@ -17,16 +17,17 @@ from experimentation.models import (
     ExperimentStatus,
     Metric,
     WarehouseConnection,
+    WarehouseConnectionStatus,
     WarehouseType,
 )
 from experimentation.services import (
     apply_experiment_rollout,
     get_experiment_rollout,
 )
-from experimentation.types import (
-    SNOWFLAKE_DEFAULTS,
-    MetricExperimentResult,
-    SnowflakeConfig,
+from experimentation.types import MetricExperimentResult
+from experimentation.warehouse_validation import (
+    CONFIG_VALIDATORS,
+    validate_credentials,
 )
 from features.feature_states.serializers import (
     FeatureValueSerializer,
@@ -40,7 +41,10 @@ from features.versioning.dataclasses import MultivariateValueChangeSet
 
 class WarehouseConnectionSerializer(serializers.ModelSerializer):  # type: ignore[type-arg]
     name = serializers.CharField(max_length=255, required=False)
-    config = serializers.JSONField(default=None, required=False, allow_null=True)
+    config = serializers.JSONField(required=False, allow_null=True)
+    credentials = serializers.JSONField(
+        required=False, allow_null=True, write_only=True
+    )
     total_events_received = serializers.SerializerMethodField()
     unique_events_count = serializers.SerializerMethodField()
 
@@ -50,33 +54,52 @@ class WarehouseConnectionSerializer(serializers.ModelSerializer):  # type: ignor
             "id",
             "warehouse_type",
             "status",
+            "status_detail",
             "name",
             "config",
+            "credentials",
             "created_at",
             "total_events_received",
             "unique_events_count",
         )
-        read_only_fields = ("id", "status", "created_at")
+        read_only_fields = ("id", "status", "status_detail", "created_at")
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         warehouse_type: str = attrs.get(
             "warehouse_type",
             getattr(self.instance, "warehouse_type", ""),
         )
+        type_changed = (
+            self.instance is not None
+            and getattr(self.instance, "warehouse_type", "") != warehouse_type
+        )
 
-        if "config" not in attrs and self.instance is not None:
+        validate_credentials(attrs, warehouse_type, self.instance)  # type: ignore[arg-type]
+
+        if "config" not in attrs and self.instance is not None and not type_changed:
             return attrs
 
         config: dict[str, Any] | None = attrs.get("config")
 
-        if warehouse_type == WarehouseType.SNOWFLAKE:
-            attrs["config"] = self._validate_snowflake_config(config or {})
+        if config_validator := CONFIG_VALIDATORS.get(warehouse_type):
+            stored = (
+                getattr(self.instance, "config", None)
+                if self.instance is not None
+                and not type_changed
+                and isinstance(getattr(self.instance, "config", None), dict)
+                else None
+            )
+            attrs["config"] = config_validator(config or {}, stored=stored)
         elif warehouse_type == WarehouseType.FLAGSMITH:
             if config:
                 raise serializers.ValidationError(
                     {"config": "Flagsmith warehouse does not accept configuration."}
                 )
             attrs["config"] = None
+
+        if type_changed:
+            attrs["status"] = WarehouseConnectionStatus.CREATED
+            attrs["status_detail"] = None
         return attrs
 
     def create(
@@ -104,19 +127,6 @@ class WarehouseConnectionSerializer(serializers.ModelSerializer):  # type: ignor
     def _generate_name(warehouse_type: str, environment: Environment) -> str:
         label = WarehouseType(warehouse_type).label
         return f"{label} Warehouse - {environment.name}"
-
-    @staticmethod
-    def _validate_snowflake_config(config: dict[str, Any]) -> SnowflakeConfig:
-        account_identifier = config.get("account_identifier", "")
-        if not account_identifier:
-            raise serializers.ValidationError(
-                {"config": {"account_identifier": "This field is required."}}
-            )
-        merged: SnowflakeConfig = {
-            **SNOWFLAKE_DEFAULTS,
-            **config,  # type: ignore[typeddict-item]
-        }
-        return merged
 
 
 class MetricSerializer(serializers.ModelSerializer):  # type: ignore[type-arg]

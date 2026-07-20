@@ -91,3 +91,23 @@ def experiment_with_rollout(
         ),
     )
     return experiment
+
+
+@pytest.fixture()
+def clickhouse_connection(
+    environment: Environment,
+) -> WarehouseConnection:
+    connection: WarehouseConnection = WarehouseConnection.objects.create(
+        environment=environment,
+        warehouse_type=WarehouseType.CLICKHOUSE,
+        name="Production ClickHouse",
+        config={
+            "host": "ch.acme-corp.example",
+            "port": 9440,
+            "database": "acme_dwh",
+            "username": "acme_svc",
+            "secure": True,
+        },
+        credentials={"password": "hunter2"},
+    )
+    return connection

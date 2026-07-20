@@ -3,8 +3,10 @@ from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
 import pytest
+from clickhouse_driver import errors as clickhouse_errors
 from django.db.models import Q
 from flag_engine.segments.constants import PERCENTAGE_SPLIT
+from prometheus_client import REGISTRY
 from pytest_django.fixtures import SettingsWrapper
 from pytest_mock import MockerFixture
 from pytest_structlog import StructuredLogCapture
@@ -36,6 +38,11 @@ from experimentation.models import (
     WarehouseType,
 )
 from experimentation.results_query import _MetricSlot
+from experimentation.services import (
+    InternalAddressError,
+    _describe_verification_error,
+    verify_clickhouse_connection,
+)
 from experimentation.stats import VariantStats
 from features.feature_types import MULTIVARIATE
 from features.models import Feature, FeatureState
@@ -2005,3 +2012,182 @@ def test_apply_experiment_rollout__reapplied_under_v2__keeps_variant_assignment(
     # Then every already-enrolled identity keeps the variant it was first
     # assigned; tuning the rollout must not re-randomise the split.
     assert before == after
+
+
+def _verification_count(result: str) -> float:
+    return (
+        REGISTRY.get_sample_value(
+            "flagsmith_experimentation_warehouse_connection_verifications_total",
+            {"result": result},
+        )
+        or 0.0
+    )
+
+
+def test_verify_clickhouse_connection__reachable__sets_connected(
+    clickhouse_connection: WarehouseConnection,
+    log: StructuredLogCapture,
+    mocker: MockerFixture,
+) -> None:
+    # Given
+    mock_client = mocker.patch("experimentation.services.Client")
+    success_count_before = _verification_count("success")
+    clickhouse_connection.status_detail = "stale detail"
+    clickhouse_connection.save()
+
+    # When
+    verify_clickhouse_connection(clickhouse_connection)
+
+    # Then
+    clickhouse_connection.refresh_from_db()
+    assert clickhouse_connection.status == WarehouseConnectionStatus.CONNECTED
+    assert clickhouse_connection.status_detail is None
+    mock_client.assert_called_once_with(
+        "ch.acme-corp.example",
+        port=9440,
+        user="acme_svc",
+        password="hunter2",
+        database="acme_dwh",
+        secure=True,
+        connect_timeout=5,
+        send_receive_timeout=5,
+    )
+    mock_client.return_value.execute.assert_called_once_with("SELECT 1")
+    mock_client.return_value.disconnect.assert_called_once_with()
+    assert _verification_count("success") == success_count_before + 1
+    assert {
+        "level": "info",
+        "event": "connection.verification_succeeded",
+        "environment__id": clickhouse_connection.environment_id,
+        "organisation__id": (clickhouse_connection.environment.project.organisation_id),
+    } in log.events
+
+
+@pytest.mark.parametrize(
+    "credentials, execute_side_effect, expected_detail",
+    [
+        (
+            {"password": "hunter2"},
+            Exception("connection refused"),
+            "Verification failed.",
+        ),
+        (None, None, "Stored connection details are incomplete."),
+    ],
+    ids=["driver_error", "missing_credentials"],
+)
+def test_verify_clickhouse_connection__failure__sets_errored_with_detail(
+    clickhouse_connection: WarehouseConnection,
+    credentials: dict[str, str] | None,
+    execute_side_effect: Exception | None,
+    expected_detail: str,
+    log: StructuredLogCapture,
+    mocker: MockerFixture,
+) -> None:
+    # Given
+    mock_client = mocker.patch("experimentation.services.Client")
+    mock_client.return_value.execute.side_effect = execute_side_effect
+    clickhouse_connection.credentials = credentials
+    clickhouse_connection.save()
+    failure_count_before = _verification_count("failure")
+
+    # When
+    verify_clickhouse_connection(clickhouse_connection)
+
+    # Then
+    clickhouse_connection.refresh_from_db()
+    assert clickhouse_connection.status == WarehouseConnectionStatus.ERRORED
+    assert clickhouse_connection.status_detail == expected_detail
+    assert _verification_count("failure") == failure_count_before + 1
+    assert any(
+        event["event"] == "connection.verification_failed" for event in log.events
+    )
+
+
+def test_verify_clickhouse_connection__internal_host__sets_errored_without_connecting(
+    clickhouse_connection: WarehouseConnection,
+    mocker: MockerFixture,
+) -> None:
+    # Given
+    mock_client = mocker.patch("experimentation.services.Client")
+    clickhouse_connection.config = {
+        **(clickhouse_connection.config or {}),
+        "host": "10.0.0.5",
+    }
+    clickhouse_connection.save()
+
+    # When
+    verify_clickhouse_connection(clickhouse_connection)
+
+    # Then
+    clickhouse_connection.refresh_from_db()
+    assert clickhouse_connection.status == WarehouseConnectionStatus.ERRORED
+    assert (
+        clickhouse_connection.status_detail
+        == "Host must not target internal or private network addresses."
+    )
+    mock_client.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "error,expected_detail",
+    [
+        (
+            clickhouse_errors.ServerException("Authentication failed", code=516),
+            "Authentication failed.",
+        ),
+        (
+            clickhouse_errors.ServerException(
+                "Database not_a_real_db does not exist", code=81
+            ),
+            "Database does not exist.",
+        ),
+        (
+            clickhouse_errors.ServerException("Some other server error", code=999),
+            "The ClickHouse server rejected the request.",
+        ),
+        (
+            clickhouse_errors.SocketTimeoutError("(10.255.255.1:9000)"),
+            "The connection timed out.",
+        ),
+        (
+            TimeoutError("timed out"),
+            "The connection timed out.",
+        ),
+        (
+            clickhouse_errors.NetworkError("Connection refused"),
+            "Could not connect to the host.",
+        ),
+        (
+            InternalAddressError("10.0.0.5"),
+            "Host must not target internal or private network addresses.",
+        ),
+        (
+            KeyError("host"),
+            "Stored connection details are incomplete.",
+        ),
+        (
+            ValueError("unexpected"),
+            "Verification failed.",
+        ),
+    ],
+    ids=[
+        "server_exception_auth_failure",
+        "server_exception_unknown_database",
+        "server_exception_other",
+        "socket_timeout_error",
+        "builtin_timeout_error",
+        "network_error",
+        "internal_address_error",
+        "key_error",
+        "generic_exception",
+    ],
+)
+def test_describe_verification_error__known_error_types__returns_expected_detail(
+    error: Exception,
+    expected_detail: str,
+) -> None:
+    # Given / When
+    detail = _describe_verification_error(error)
+
+    # Then
+    assert detail == expected_detail

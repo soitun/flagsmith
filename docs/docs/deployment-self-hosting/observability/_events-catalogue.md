@@ -71,6 +71,14 @@ Attributes:
  - `feature.count`
  - `organisation.id`
 
+### `core.encrypted_field.decrypt_failed`
+
+Logged at `warning` from:
+ - `api/core/fields.py:37`
+
+Attributes:
+ - `exc_info`
+
 ### `dynamodb.environment_document_compressed`
 
 Logged at `info` from:
@@ -533,7 +541,7 @@ Attributes:
 ### `warehouse.connection.connected`
 
 Logged at `info` from:
- - `api/experimentation/services.py:803`
+ - `api/experimentation/services.py:878`
 
 Attributes:
  - `environment.id`
@@ -542,7 +550,26 @@ Attributes:
 ### `warehouse.connection.test_event_sent`
 
 Logged at `info` from:
- - `api/experimentation/services.py:783`
+ - `api/experimentation/services.py:790`
+
+Attributes:
+ - `environment.id`
+ - `organisation.id`
+
+### `warehouse.connection.verification_failed`
+
+Logged at `warning` from:
+ - `api/experimentation/services.py:854`
+
+Attributes:
+ - `environment.id`
+ - `exc_info`
+ - `organisation.id`
+
+### `warehouse.connection.verification_succeeded`
+
+Logged at `info` from:
+ - `api/experimentation/services.py:863`
 
 Attributes:
  - `environment.id`
@@ -551,7 +578,7 @@ Attributes:
 ### `warehouse.srm.overallocated`
 
 Logged at `error` from:
- - `api/experimentation/services.py:405`
+ - `api/experimentation/services.py:412`
 
 Attributes:
  - `environment.id`
@@ -561,7 +588,7 @@ Attributes:
 ### `warehouse.srm.unkeyed_variant`
 
 Logged at `error` from:
- - `api/experimentation/services.py:391`
+ - `api/experimentation/services.py:398`
 
 Attributes:
  - `environment.id`

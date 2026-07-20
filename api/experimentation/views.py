@@ -15,6 +15,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
+from rest_framework.throttling import BaseThrottle, ScopedRateThrottle
 from rest_framework.viewsets import GenericViewSet
 
 from app.pagination import CustomPagination
@@ -62,6 +63,7 @@ from experimentation.services import (
     mark_warehouse_pending_connection,
     refresh_warehouse_connection_status,
     transition_experiment_status,
+    verify_clickhouse_connection,
 )
 from experimentation.tasks import (
     compute_experiment_exposures,
@@ -89,6 +91,17 @@ class WarehouseConnectionViewSet(
     lookup_field = "id"
     lookup_url_kwarg = "connection_id"
 
+    def get_throttles(self) -> list[BaseThrottle]:
+        if self.action in (
+            "create",
+            "update",
+            "partial_update",
+            "test_warehouse_connection",
+        ):
+            self.throttle_scope = "warehouse_connection_write"
+            return [*super().get_throttles(), ScopedRateThrottle()]
+        return super().get_throttles()
+
     def perform_create(self, serializer: BaseSerializer[WarehouseConnection]) -> None:
         connection: WarehouseConnection = serializer.save(
             environment=self._get_environment()
@@ -96,12 +109,19 @@ class WarehouseConnectionViewSet(
         create_warehouse_audit_log(
             connection, self._get_user(self.request), action="created"
         )
+        if connection.warehouse_type == WarehouseType.CLICKHOUSE:
+            verify_clickhouse_connection(connection)
 
     def perform_update(self, serializer: BaseSerializer[WarehouseConnection]) -> None:
         connection: WarehouseConnection = serializer.save()
         create_warehouse_audit_log(
             connection, self._get_user(self.request), action="updated"
         )
+        if connection.warehouse_type == WarehouseType.CLICKHOUSE and (
+            "config" in serializer.validated_data
+            or "credentials" in serializer.validated_data
+        ):
+            verify_clickhouse_connection(connection)
 
     def perform_destroy(self, instance: WarehouseConnection) -> None:
         create_warehouse_audit_log(
@@ -130,9 +150,14 @@ class WarehouseConnectionViewSet(
     @action(detail=True, methods=["post"], url_path="test-warehouse-connection")
     def test_warehouse_connection(self, request: Request, **kwargs: object) -> Response:
         connection: WarehouseConnection = self.get_object()
+        if connection.warehouse_type == WarehouseType.CLICKHOUSE:
+            verify_clickhouse_connection(connection)
+            return Response(self.get_serializer(connection).data)
         if connection.warehouse_type != WarehouseType.FLAGSMITH:
             return Response(
-                {"detail": "Test events are only supported for Flagsmith warehouses."},
+                {
+                    "detail": "Connection testing is not supported for this warehouse type."
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
         mark_warehouse_pending_connection(connection)
