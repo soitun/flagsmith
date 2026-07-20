@@ -31,6 +31,7 @@ import AccountStore from 'common/stores/account-store'
 import { LoginRequest, RegisterRequest } from 'common/types/requests'
 import { useGetBuildVersionQuery } from 'common/services/useBuildVersion'
 import { useUTMs } from 'common/useUTMs'
+import useSignupExperiment from 'common/useSignupExperiment'
 
 const HomePage: React.FC = () => {
   const history = useHistory()
@@ -180,6 +181,13 @@ const HomePage: React.FC = () => {
       currentLocation.indexOf('signup') !== -1)
   const disableSignup = preventSignup && isSignup
   const preventEmailPassword = Project.preventEmailPassword
+
+  const signupVariant = useSignupExperiment(
+    !isSignup || isInvite || !!preventEmailPassword || !!AccountStore.getUser(),
+    email,
+  )
+  const blockGenericEmailDomain =
+    signupVariant === 'signup_corporate_only' && isFreeEmailDomain(email)
   const disableForgotPassword = Project.preventForgotPassword
   const oauths: React.ReactNode[] = []
   const disableOauthRegister = Utils.getFlagsmithHasFeature(
@@ -627,12 +635,16 @@ const HomePage: React.FC = () => {
                                   name='email'
                                   id='email'
                                 />
-                                {isFreeEmailDomain(email) && (
-                                  <InfoMessage>
-                                    Signing up with a work email makes it easier
-                                    for co-workers to join your Flagsmith
-                                    organisation.
-                                  </InfoMessage>
+                                {blockGenericEmailDomain ? (
+                                  <ErrorMessage error='Please use your work email address to create your account.' />
+                                ) : (
+                                  isFreeEmailDomain(email) && (
+                                    <InfoMessage>
+                                      Signing up with a work email makes it
+                                      easier for co-workers to join your
+                                      Flagsmith organisation.
+                                    </InfoMessage>
+                                  )
                                 )}
                                 <InputGroup
                                   title='Password'
@@ -663,7 +675,10 @@ const HomePage: React.FC = () => {
                                     disabled={
                                       isLoading ||
                                       isSaving ||
-                                      !allRequirementsMet
+                                      !allRequirementsMet ||
+                                      !firstName.trim() ||
+                                      !lastName.trim() ||
+                                      blockGenericEmailDomain
                                     }
                                     className='px-4 mt-3 full-width'
                                     type='submit'
