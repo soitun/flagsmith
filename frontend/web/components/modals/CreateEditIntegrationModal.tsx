@@ -10,6 +10,7 @@ import { getGithubRepos } from 'common/services/useGithub'
 import Project from 'common/project'
 import AccountStore from 'common/stores/account-store'
 import Utils from 'common/utils/utils'
+import { ensureTrailingSlash } from 'common/utils/ensureTrailingSlash'
 import Input from 'components/base/forms/Input'
 import {
   IntegrationData,
@@ -114,6 +115,7 @@ const CreateEditIntegration: FC<CreateEditIntegrationProps> = (props) => {
     () => data || buildDefaultFormData(),
   )
   const [isLoading, setIsLoading] = useState<boolean>(false)
+  const [customUrlFields, setCustomUrlFields] = useState<Set<string>>(new Set())
   const [error, setError] = useState<string | null>(null)
   const [authorised, setAuthorised] = useState<boolean>(false)
   const [selectedProjectId, setSelectedProjectId] = useState<
@@ -156,6 +158,7 @@ const CreateEditIntegration: FC<CreateEditIntegrationProps> = (props) => {
     if (previousProjectRef.current === selectedProjectId) return
     previousProjectRef.current = selectedProjectId
     setLoadedIntegration(null)
+    setCustomUrlFields(new Set())
     setFormData(buildDefaultFormData())
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedProjectId])
@@ -163,6 +166,10 @@ const CreateEditIntegration: FC<CreateEditIntegrationProps> = (props) => {
   useEffect(() => {
     if (!requiresProjectSelection || !id || !integrationQueryArgs) return
     if (isFetchingIntegration) return
+    // Stale custom-URL selections must not leak into the freshly loaded (or
+    // reset) form; saved custom values still render as Custom URL because
+    // they won't match any preset option.
+    setCustomUrlFields(new Set())
     const existing = existingIntegrations?.[0]
     if (existing) {
       setLoadedIntegration(existing)
@@ -283,13 +290,19 @@ const CreateEditIntegration: FC<CreateEditIntegrationProps> = (props) => {
       organisationId,
       projectId: integration.perEnvironment ? undefined : projectId,
     }
+    // NewRelicWrapper appends v2/applications/... directly to base_url, so a
+    // custom URL must be slash-terminated.
+    const body =
+      id === 'new-relic' && formData.base_url
+        ? { ...formData, base_url: ensureTrailingSlash(formData.base_url) }
+        : formData
     const request = isEdit
       ? updateIntegration({
           ...mutationArgs,
-          body: formData,
+          body,
           id: `${existingId}`,
         }).unwrap()
-      : createIntegration({ ...mutationArgs, body: formData }).unwrap()
+      : createIntegration({ ...mutationArgs, body }).unwrap()
     request
       .then(() => {
         const integrationName = integration.title || 'Integration'
@@ -352,17 +365,43 @@ const CreateEditIntegration: FC<CreateEditIntegrationProps> = (props) => {
     const selected = options.find(
       (v: IntegrationFieldOption) => v.value === formData[field.key],
     )
+    // Only fields that offer the 'custom' sentinel get custom-URL handling;
+    // other option fields (e.g. Slack channels) fall back to 'Please select'
+    // when the saved value is missing from the options.
+    const supportsCustomUrl = options.some((o) => o.value === 'custom')
+    const isCustomUrl =
+      supportsCustomUrl &&
+      (customUrlFields.has(field.key) ||
+        (!!formData[field.key] &&
+          !options.find((o) => o.value === formData[field.key])))
+    let selectValue: { label: string; value?: string } = {
+      label: 'Please select',
+    }
+    if (isCustomUrl) {
+      selectValue = { label: 'Custom URL', value: 'custom' }
+    } else if (selected) {
+      selectValue = { label: selected.label, value: selected.value }
+    }
     return (
       <div className='full-width mb-2'>
         <Select
-          onChange={(v: { value: string }) => update(field.key, v.value)}
+          onChange={(v: { value: string }) => {
+            if (v.value === 'custom') {
+              setCustomUrlFields((prev) => new Set(prev).add(field.key))
+              update(field.key, '')
+            } else {
+              setCustomUrlFields((prev) => {
+                const next = new Set(prev)
+                next.delete(field.key)
+                return next
+              })
+              update(field.key, v.value)
+            }
+          }}
           options={options}
-          value={
-            selected
-              ? { label: selected.label, value: selected.value }
-              : { label: 'Please select' }
-          }
+          value={selectValue}
         />
+        {isCustomUrl && <div className='mt-2'>{renderFieldInput(field)}</div>}
       </div>
     )
   }

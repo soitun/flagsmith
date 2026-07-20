@@ -13,6 +13,11 @@ const defaultFlags = {
         {
           'key': 'base_url',
           'label': 'Base URL',
+          'options': [
+            { 'label': 'US', 'value': 'https://api2.amplitude.com' },
+            { 'label': 'EU', 'value': 'https://api.eu.amplitude.com' },
+            { 'label': 'Custom URL', 'value': 'custom' },
+          ],
         },
       ],
       'image': '/static/images/integrations/amplitude.svg',
@@ -49,6 +54,15 @@ const defaultFlags = {
         {
           'key': 'base_url',
           'label': 'Base URL',
+          'options': [
+            { 'label': 'US1', 'value': 'https://api.datadoghq.com' },
+            { 'label': 'US3', 'value': 'https://api.us3.datadoghq.com' },
+            { 'label': 'US5', 'value': 'https://api.us5.datadoghq.com' },
+            { 'label': 'EU1', 'value': 'https://api.datadoghq.eu' },
+            { 'label': 'US1-FED', 'value': 'https://api.ddog-gov.com' },
+            { 'label': 'AP1', 'value': 'https://api.ap1.datadoghq.com' },
+            { 'label': 'Custom URL', 'value': 'custom' },
+          ],
         },
         {
           'hidden': true,
@@ -171,14 +185,9 @@ const defaultFlags = {
           'key': 'base_url',
           'label': 'Base URL',
           'options': [
-            {
-              'label': 'US',
-              'value': 'https://heapanalytics.com',
-            },
-            {
-              'label': 'EU',
-              'value': 'https://c.eu.heap-api.com',
-            },
+            { 'label': 'US', 'value': 'https://heapanalytics.com' },
+            { 'label': 'EU', 'value': 'https://c.eu.heap-api.com' },
+            { 'label': 'Custom URL', 'value': 'custom' },
           ],
         },
       ],
@@ -225,18 +234,10 @@ const defaultFlags = {
           'key': 'base_url',
           'label': 'Base URL',
           'options': [
-            {
-              'label': 'US',
-              'value': 'https://api.mixpanel.com',
-            },
-            {
-              'label': 'EU',
-              'value': 'https://api-eu.mixpanel.com',
-            },
-            {
-              'label': 'India',
-              'value': 'https://api-in.mixpanel.com',
-            },
+            { 'label': 'US', 'value': 'https://api.mixpanel.com' },
+            { 'label': 'EU', 'value': 'https://api-eu.mixpanel.com' },
+            { 'label': 'India', 'value': 'https://api-in.mixpanel.com' },
+            { 'label': 'Custom URL', 'value': 'custom' },
           ],
         },
       ],
@@ -253,12 +254,25 @@ const defaultFlags = {
       'fields': [
         {
           'key': 'base_url',
-          'label': 'New Relic Base URL',
+          'label': 'Base URL',
+          'options': [
+            // The backend appends v2/applications/... directly, so these need
+            // the REST API host with a trailing slash (see NewRelicWrapper).
+            {
+              'label': 'US',
+              'value': 'https://api.newrelic.com/',
+            },
+            {
+              'label': 'EU',
+              'value': 'https://api.eu.newrelic.com/',
+            },
+            { 'label': 'Custom URL', 'value': 'custom' },
+          ],
         },
         {
           'hidden': true,
           'key': 'api_key',
-          'label': 'New Relic API Key',
+          'label': 'API Key',
         },
         {
           'key': 'app_id',
