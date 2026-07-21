@@ -100,6 +100,25 @@ Attributes:
  - `feature.id`
  - `organisation.id`
 
+### `experimentation.ingestion_infra.bucket_created`
+
+Logged at `info` from:
+ - `api/experimentation/ingestion_infra_service.py:95`
+
+Attributes:
+ - `bucket.name`
+ - `organisation.id`
+
+### `experimentation.ingestion_infra.stream_created`
+
+Logged at `info` from:
+ - `api/experimentation/ingestion_infra_service.py:186`
+
+Attributes:
+ - `bucket.name`
+ - `organisation.id`
+ - `stream.name`
+
 ### `experimentation.results.compute_failed`
 
 Logged at `error` from:
