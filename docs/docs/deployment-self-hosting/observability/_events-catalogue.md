@@ -422,6 +422,28 @@ Logged at `info` from:
 Attributes:
  - `organisation.id`
 
+### `onboarding.environment.already_evaluated`
+
+Logged at `info` from:
+ - `api/environments/onboarding/services.py:23`
+
+Attributes:
+ - `environment.id`
+ - `organisation.id`
+ - `project.id`
+ - `sdk.label`
+
+### `onboarding.environment.first_evaluated`
+
+Logged at `info` from:
+ - `api/environments/onboarding/services.py:32`
+
+Attributes:
+ - `environment.id`
+ - `organisation.id`
+ - `project.id`
+ - `sdk.label`
+
 ### `platform_hub.no_analytics_database_configured`
 
 Logged at `warning` from:
