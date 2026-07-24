@@ -50,6 +50,7 @@ def remove_environment_ingestion_keys(environment_id: int) -> None:
     ingestion_sync_service.delete_ingestion_key(environment.api_key)
     for api_key in environment.api_keys.all():
         ingestion_sync_service.delete_ingestion_key(api_key.key)
+    ingestion_sync_service.delete_ingestion_destination(environment.api_key)
 
 
 @register_task_handler()
@@ -62,7 +63,16 @@ def provision_external_warehouse_ingestion_infrastructure(environment_id: int) -
     if environment is None:
         return
 
-    enable_ingestion_for_organisation(environment.project.organisation)
+    infrastructure = enable_ingestion_for_organisation(environment.project.organisation)
+    if not infrastructure.stream_name:
+        raise RuntimeError("Provisioned ingestion infrastructure has no stream name")
+    # Set the destination before publishing the ingestion keys: the keys gate
+    # the pipeline, so a key without a destination would route events to the
+    # default stream until this write lands.
+    ingestion_sync_service.set_ingestion_destination(
+        environment.api_key,
+        stream_name=infrastructure.stream_name,
+    )
     write_environment_ingestion_keys(environment_id)
 
 
