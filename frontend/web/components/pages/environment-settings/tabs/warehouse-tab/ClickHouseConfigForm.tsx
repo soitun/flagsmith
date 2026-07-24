@@ -3,6 +3,7 @@ import Button from 'components/base/forms/Button'
 import Input from 'components/base/forms/Input'
 import Switch from 'components/Switch'
 import ErrorMessage from 'components/ErrorMessage'
+import FieldError from 'components/base/forms/FieldError'
 import WarningMessage from 'components/WarningMessage'
 import { ClickHouseConfig } from 'common/types/responses'
 import { useTestWarehouseConnectionConfigMutation } from 'common/services/useWarehouseConnection'
@@ -14,6 +15,7 @@ import {
   ClickHouseFormState,
   isClickHouseConfigDirty,
   isClickHouseFormValid,
+  isValidPort,
 } from './clickhouseConfig'
 import {
   getButtonLabel,
@@ -70,6 +72,7 @@ const ClickHouseConfigForm: FC<ClickHouseConfigFormProps> = ({
   const isValid = isClickHouseFormValid(form, isEdit)
   const requiresTest = !isEdit || isClickHouseConfigDirty(form, initialConfig)
   const canTest = canTestClickHouseConnection(form)
+  const hasInvalidPort = !!port && !isValidPort(port)
   const canSave = isValid && (!requiresTest || testState !== 'idle')
 
   const setField =
@@ -101,16 +104,11 @@ const ClickHouseConfigForm: FC<ClickHouseConfigFormProps> = ({
       } else {
         setTestState('errored')
         setTestDetail(result.status_detail)
-        toast(
-          result.status_detail || 'Connection failed — check your credentials',
-          'danger',
-        )
       }
     } catch {
       if (revision !== testRevision.current) return
       setTestState('errored')
       setTestDetail(null)
-      toast('Failed to test connection', 'danger')
     }
   }
 
@@ -168,6 +166,16 @@ const ClickHouseConfigForm: FC<ClickHouseConfigFormProps> = ({
                 setField(setPort)(e.target.value)
               }
               placeholder='9440'
+              aria-invalid={hasInvalidPort}
+              aria-describedby={
+                hasInvalidPort ? 'warehouse-config-port-error' : undefined
+              }
+            />
+            <FieldError
+              id='warehouse-config-port-error'
+              error={
+                hasInvalidPort && 'Port must be a number between 1 and 65535.'
+              }
             />
           </div>
           <div className='wh-config-form__field'>
@@ -201,6 +209,7 @@ const ClickHouseConfigForm: FC<ClickHouseConfigFormProps> = ({
               setField(setPassword)(e.target.value)
             }
             type='password'
+            autoComplete='new-password'
             placeholder={isEdit ? '••••••••' : 'Password'}
           />
           {isEdit && (
