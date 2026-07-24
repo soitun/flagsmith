@@ -1259,12 +1259,31 @@ export type SnowflakeConfig = {
   user: string
 }
 
+export type ClickHouseConfig = {
+  host: string
+  port: number
+  database: string
+  username: string
+  secure: boolean
+}
+
+export type WarehouseConfigResponse =
+  | SnowflakeConfig
+  | ClickHouseConfig
+  | Record<string, never>
+
+export type WarehouseConnectionTestResult = {
+  status: WarehouseConnectionStatus
+  status_detail: string | null
+}
+
 export type WarehouseConnection = {
   id: number
   warehouse_type: WarehouseType
   status: WarehouseConnectionStatus
+  status_detail: string | null
   name: string
-  config: SnowflakeConfig | Record<string, never>
+  config: WarehouseConfigResponse
   created_at: string
   total_events_received: number | null
   unique_events_count: number | null
@@ -1496,6 +1515,7 @@ export type Res = {
   gitlabIssues: PagedResponse<GitLabIssue>
   gitlabMergeRequests: PagedResponse<GitLabMergeRequest>
   warehouseConnections: WarehouseConnection[]
+  warehouseConnectionTestResult: WarehouseConnectionTestResult
   experiments: PagedResponse<Experiment> & {
     currentPage: number
     pageSize: number
