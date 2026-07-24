@@ -4,13 +4,11 @@ import Icon from 'components/icons/Icon'
 import Tooltip from 'components/Tooltip'
 import {
   colorIconSecondary,
-  colorTextDanger,
   colorTextSecondary,
   colorTextSuccess,
 } from 'common/theme/tokens'
 import {
   BayesianMetricResult,
-  ExpectedDirection,
   ExperimentMetric,
   Inference,
   MetricAggregation,
@@ -19,7 +17,7 @@ import {
 import {
   VariantIdentity,
   formatLiftPct,
-  isLiftFavourable,
+  getLiftColour,
   liftToPercent,
 } from './derive'
 
@@ -42,13 +40,9 @@ const renderMetricValue = (
   return mean.toFixed(2)
 }
 
-const getLiftColour = (lift: number, direction: ExpectedDirection): string =>
-  isLiftFavourable(lift, direction) ? colorTextSuccess : colorTextDanger
-
 const renderLift = (
   identity: VariantIdentity,
   inference: Inference | null,
-  direction: ExpectedDirection,
   liftRange: number,
 ): ReactNode => {
   if (identity.isControl) {
@@ -57,7 +51,7 @@ const renderLift = (
   if (!inference) {
     return <span className='text-secondary fs-caption'>Collecting data…</span>
   }
-  const colour = getLiftColour(inference.lift, direction)
+  const colour = getLiftColour(inference.lift)
   const left = liftToPercent(inference.ci_low, liftRange)
   const right = liftToPercent(inference.ci_high, liftRange)
   const dotPos = liftToPercent(inference.lift, liftRange)
@@ -201,14 +195,7 @@ const ExperimentResultsScorecardTable: FC<
                 </td>
                 <td>{stats ? stats.n.toLocaleString() : '—'}</td>
                 <td>{renderMetricValue(stats, metric.aggregation)}</td>
-                <td>
-                  {renderLift(
-                    v,
-                    inference,
-                    metric.expected_direction,
-                    liftRange,
-                  )}
-                </td>
+                <td>{renderLift(v, inference, liftRange)}</td>
                 <td>{renderCI(v, inference)}</td>
                 <td>
                   {renderWinProbability(v, inference, v.key === winnerKey)}

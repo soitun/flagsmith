@@ -1,15 +1,17 @@
 import moment from 'moment'
 import { ChartDataPoint, buildChartColorMap } from 'components/charts'
+import { colorTextDanger, colorTextSuccess } from 'common/theme/tokens'
 import {
   BayesianMetricResult,
   BayesianResultsSummary,
-  ExpectedDirection,
+  Experiment,
   ExperimentFeature,
   ExposureGranularity,
   ExposuresSummary,
   Inference,
   MultivariateOption,
 } from 'common/types/responses'
+import { getPrimaryMetric } from 'components/experiments/constants'
 
 // Mirrors api/features/constants.py CONTROL_VARIANT_KEY.
 export const CONTROL_VARIANT_KEY = 'control'
@@ -118,13 +120,12 @@ export const getResultsTotalUsers = (
   return Object.values(firstMetric.variants).reduce((sum, v) => sum + v.n, 0)
 }
 
-export const isLiftFavourable = (
-  lift: number,
-  direction: ExpectedDirection,
-): boolean => {
-  if (direction === 'increase' || direction === 'not_decrease') return lift > 0
-  return lift < 0
-}
+// Colour by sign only — expected_direction is not used reliably yet, so it
+// deliberately plays no part in lift colouring.
+export const isLiftFavourable = (lift: number): boolean => lift > 0
+
+export const getLiftColour = (lift: number): string =>
+  isLiftFavourable(lift) ? colorTextSuccess : colorTextDanger
 
 export const formatLiftPct = (lift: number): string => {
   const pct = lift * 100
@@ -141,28 +142,88 @@ export type WinningVariant = {
   key: string
   name: string
   chanceToWin: number
-  inference: Inference
+  inference: Inference | null
+  isControl: boolean
 }
 
+// chance_to_win is pairwise — P(variant beats control) — so chances don't sum
+// to 1 across arms. P(control is best) = P(no variant beats it); the Bonferroni
+// bound 1 - Σ chance_to_win is exact for one variant, conservative otherwise.
 export const getWinningVariant = (
   metricResult: BayesianMetricResult,
   identities: VariantIdentity[],
 ): WinningVariant | null => {
   let best: WinningVariant | null = null
-  identities.forEach((v) => {
-    if (v.isControl) return
+  let treatmentChancesTotal = 0
+  for (const v of identities) {
+    if (v.isControl) continue
     const inf = metricResult.inference[v.key]
-    if (!inf) return
+    if (!inf) continue
+    treatmentChancesTotal += inf.chance_to_win
     if (!best || inf.chance_to_win > best.chanceToWin) {
       best = {
         chanceToWin: inf.chance_to_win,
         inference: inf,
+        isControl: false,
         key: v.key,
         name: v.name,
       }
     }
-  })
+  }
+  if (!best) return null
+  const control = identities.find((v) => v.isControl)
+  const controlChance = Math.max(0, 1 - treatmentChancesTotal)
+  if (control && controlChance > best.chanceToWin) {
+    return {
+      chanceToWin: controlChance,
+      inference: null,
+      isControl: true,
+      key: control.key,
+      name: control.name,
+    }
+  }
   return best
+}
+
+export type SummaryStats = {
+  winnerName: string
+  winnerColour: string
+  controlColour: string
+  controlWins: boolean
+  chanceToBest: string
+  liftVsControl: string
+  liftFavourable: boolean
+}
+
+export const deriveSummary = (
+  experiment: Experiment,
+  results: BayesianResultsSummary,
+): SummaryStats | null => {
+  const metric = getPrimaryMetric(experiment)
+  if (!metric) return null
+  const metricResult = getMetricResult(results, metric.metric)
+  if (!metricResult) return null
+
+  const identities = getVariantIdentities(experiment.feature)
+  const winner = getWinningVariant(metricResult, identities)
+  if (!winner) return null
+
+  const winnerIdentity = identities.find((v) => v.key === winner.key)
+  const controlIdentity = identities.find((v) => v.isControl)
+
+  return {
+    chanceToBest: `${Math.round(winner.chanceToWin * 100)}%`,
+    controlColour: controlIdentity?.colour ?? '',
+    controlWins: winner.isControl,
+    liftFavourable: winner.inference
+      ? isLiftFavourable(winner.inference.lift)
+      : false,
+    liftVsControl: winner.inference
+      ? formatLiftPct(winner.inference.lift)
+      : 'Baseline',
+    winnerColour: winnerIdentity?.colour ?? '',
+    winnerName: winner.name,
+  }
 }
 
 export type AxisRange = { min: number; max: number }
