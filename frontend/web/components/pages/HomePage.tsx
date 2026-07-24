@@ -411,14 +411,13 @@ const HomePage: React.FC = () => {
                                     ) => setEmail(Utils.safeParseEventValue(e))}
                                     className='input-default full-width mb-4'
                                     type='text'
-                                    name='email'
                                     id='email'
                                   />
                                   <InputGroup
                                     title='Password'
                                     inputProps={{
+                                      autoComplete: 'on',
                                       className: 'full-width',
-                                      enableAutoComplete: true,
                                       error: error?.password,
                                       name: 'password',
                                     }}
@@ -427,31 +426,29 @@ const HomePage: React.FC = () => {
                                     ) =>
                                       setPassword(Utils.safeParseEventValue(e))
                                     }
-                                    rightComponent={
-                                      !disableForgotPassword && (
-                                        <Link
-                                          tabIndex={-1}
-                                          className='float-end'
-                                          to={`/password-recovery${redirect}`}
-                                          onClick={showForgotPassword}
-                                        >
-                                          <Button
-                                            theme='text'
-                                            tabIndex={-1}
-                                            type='button'
-                                            className='fs-small'
-                                          >
-                                            Forgot password
-                                          </Button>
-                                        </Link>
-                                      )
-                                    }
                                     className='input-default full-width mb-2'
                                     type='password'
-                                    name='password'
                                     data-test='password'
                                     id='password'
                                   />
+                                  {!disableForgotPassword && (
+                                    <div className='d-flex justify-content-end mb-2'>
+                                      <Link
+                                        tabIndex={-1}
+                                        to={`/password-recovery${redirect}`}
+                                        onClick={showForgotPassword}
+                                      >
+                                        <Button
+                                          theme='text'
+                                          tabIndex={-1}
+                                          type='button'
+                                          className='fs-small'
+                                        >
+                                          Forgot password
+                                        </Button>
+                                      </Link>
+                                    </div>
+                                  )}
                                   <div className='form-cta'>
                                     <Button
                                       id='login-btn'
@@ -597,7 +594,6 @@ const HomePage: React.FC = () => {
                                   }
                                   className='input-default full-width'
                                   type='text'
-                                  name='firstName'
                                   id='firstName'
                                 />
                                 <InputGroup
@@ -615,15 +611,14 @@ const HomePage: React.FC = () => {
                                   }
                                   className='input-default full-width'
                                   type='text'
-                                  name='lastName'
                                   id='lastName'
                                 />
                                 <InputGroup
                                   title='Email Address'
                                   data-test='email'
                                   inputProps={{
+                                    autoComplete: 'on',
                                     className: 'full-width',
-                                    enableAutoComplete: true,
                                     error: error && error.email,
                                     name: 'email',
                                   }}
@@ -632,7 +627,6 @@ const HomePage: React.FC = () => {
                                   ) => setEmail(Utils.safeParseEventValue(e))}
                                   className='input-default full-width'
                                   type='email'
-                                  name='email'
                                   id='email'
                                 />
                                 {blockGenericEmailDomain ? (
@@ -661,7 +655,6 @@ const HomePage: React.FC = () => {
                                   }
                                   className='input-default full-width'
                                   type='password'
-                                  name='password'
                                   id='password'
                                 />
                                 <PasswordRequirements
